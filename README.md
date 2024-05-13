@@ -60,7 +60,7 @@ Build the binary and run it.
 ```bash
 cargo build --release
 
-./target/release/postgres_proxy \
+./target/release/pgt_proxy \
   --server-private-key-path key.pem \
   --server-certificate-path cert.pem \
   --server-port 9000 \

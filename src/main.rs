@@ -94,7 +94,7 @@ async fn inbound_handshake(
     server_config: ServerConfig,
     request_id: &str,
 ) -> TlsStream<TcpStream> {
-    let mut buffer = [0u8; 32];
+    let mut buffer = [0u8; 8];
     inbound_stream.readable().await.unwrap();
     inbound_stream.try_read(&mut buffer).unwrap();
     if !buffer.starts_with(&[0, 0, 0, 8, 4, 210, 22, 47]) {
@@ -136,7 +136,7 @@ async fn outbound_handshake(
     outbound_stream
         .try_write(&[0, 0, 0, 8, 4, 210, 22, 47])
         .unwrap();
-    let mut buffer = [0u8; 32];
+    let mut buffer = [0u8; 1];
     outbound_stream.readable().await.unwrap();
     outbound_stream.try_read(&mut buffer).unwrap();
     if !buffer.starts_with(b"S") {

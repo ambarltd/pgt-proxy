@@ -8,7 +8,7 @@ use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
-use tokio::io::{self, split};
+use tokio::io::{self, split, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::rustls::{self, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector, TlsStream};
@@ -90,25 +90,22 @@ async fn handle_inbound_request(
 }
 
 async fn inbound_handshake(
-    inbound_stream: TcpStream,
+    mut inbound_stream: TcpStream,
     server_config: ServerConfig,
     request_id: &str,
 ) -> TlsStream<TcpStream> {
     let mut buffer = [0u8; 8];
-    inbound_stream.readable().await.unwrap();
-    inbound_stream.try_read(&mut buffer).unwrap();
+    inbound_stream.read_exact(&mut buffer).await.unwrap();
     if !buffer.starts_with(&[0, 0, 0, 8, 4, 210, 22, 47]) {
-        inbound_stream.writable().await.unwrap();
         // tell pgClient we do not support plaintext connections
-        inbound_stream.try_write(b"N").unwrap();
+        inbound_stream.write_all(b"N").await.unwrap();
         panic!(
             "TLS not supported by PG client on inbound connection. RequestId: {}",
             request_id
         );
     }
-    inbound_stream.writable().await.unwrap();
     // tell pgClient we're proceeding with TLS
-    inbound_stream.try_write(b"S").unwrap();
+    inbound_stream.write_all(b"S").await.unwrap();
 
     TlsAcceptor::from(Arc::new(server_config))
         .accept(inbound_stream)
@@ -130,17 +127,15 @@ async fn outbound_handshake(
         .unwrap()
         .next()
         .unwrap();
-    let outbound_stream = TcpStream::connect(connect_to).await.unwrap();
-    outbound_stream.writable().await.unwrap();
+    let mut outbound_stream = TcpStream::connect(connect_to).await.unwrap();
     // tell pgServer we only support TLS connections
     outbound_stream
-        .try_write(&[0, 0, 0, 8, 4, 210, 22, 47])
+        .write_all(&[0, 0, 0, 8, 4, 210, 22, 47])
+        .await
         .unwrap();
     let mut buffer = [0u8; 1];
-    outbound_stream.readable().await.unwrap();
-    outbound_stream.try_read(&mut buffer).unwrap();
+    outbound_stream.read_exact(&mut buffer).await.unwrap();
     if !buffer.starts_with(b"S") {
-        // pgServer tells us it is proceeding with TLS
         panic!(
             "TLS not supported by PG server on outbound connection. RequestId: {}",
             request_id

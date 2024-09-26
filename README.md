@@ -91,9 +91,9 @@ psql "sslmode=full-verify host=hostname_in_certificate.com hostaddr=127.0.0.1 po
 - PGT-Proxy to server bi-directional TLS validation (mutual tls)
 - Multiple destination PG servers
 
-### Will Not Be Supported
+### Will (Most Likely) Not Be Supported Soon
 
-- Enforcing PG clients to send "full-verify". Not possible without a custom client as of Postgres Version 16. 
-PG clients only send an indication of their intent to use TLS, not details about the TLS verification they will run.
-- PG connection pooling
+- Enforcing PG clients to send "full-verify". Not possible without a custom client as of Postgres Version 16. In the PG  protocol,
+PG clients only send an indication of their intent to use TLS, not details about the TLS verification type they will run.
+- PG connection pooling (PGT-Proxy is transparent, you're free to place a pool in front of your PG server)
 - Channel binding support

@@ -1,6 +1,7 @@
 mod command_arguments;
 mod tls_client_config;
 mod tls_server_config;
+mod tracing_setup;
 
 use crate::command_arguments::CommandArguments;
 use anyhow::{anyhow, bail};
@@ -29,6 +30,7 @@ use uuid::Uuid;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: CommandArguments = CommandArguments::parse();
+    tracing_setup::init(args.log_level)?;
 
     let tls_server_config = tls_server_config::server_config(
         &args.server_certificate_path,
@@ -37,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     let tls_client_config = tls_client_config::client_config(&args.client_ca_roots_path)?;
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", &args.server_port)).await?;
-    println!("Listening on port {}", args.server_port);
+    tracing::info!(port = ?args.server_port, "Listening");
     while let Ok((inbound_tcp_stream, _)) = listener.accept().await {
         tokio::spawn(handle_inbound_request(
             inbound_tcp_stream,
@@ -62,15 +64,15 @@ async fn handle_inbound_request(
     tls_validation_host: String,
     request_id: String,
 ) -> anyhow::Result<()> {
-    println!(
-        "Accepting inbound connection from PG client. Proceeding to handshake. RequestId: {}",
-        request_id
+    tracing::info!(
+        ?request_id,
+        "Accepting inbound connection from PG client. Proceeding to handshake.",
     );
     let inbound_tls_stream = inbound_handshake(inbound_stream, server_config, &request_id).await?;
 
-    println!(
-        "Inbound TLS OK. Proceeding to outbound connection to PG server. RequestId: {}",
-        request_id
+    tracing::info!(
+        ?request_id,
+        "Inbound TLS OK. Proceeding to outbound connection to PG server.",
     );
     let outbound_tls_stream = outbound_handshake(
         &connection_host_or_ip,
@@ -81,9 +83,9 @@ async fn handle_inbound_request(
     )
     .await?;
 
-    println!(
-        "Outbound TLS OK. Proceeding to join inbound and outbound connection. RequestId: {}",
-        request_id
+    tracing::info!(
+        ?request_id,
+        "Outbound TLS OK. Proceeding to join inbound and outbound connection.",
     );
     join(inbound_tls_stream, outbound_tls_stream, &request_id).await?;
 
@@ -163,7 +165,7 @@ async fn join(
 
     tokio::try_join!(io::copy(&mut ir, &mut ow), io::copy(&mut or, &mut iw))?;
 
-    println!("Connection closed. RequestId: {}", request_id);
+    tracing::info!(?request_id, "Connection closed.");
 
     Ok(())
 }

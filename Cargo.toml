@@ -12,4 +12,6 @@ rustls-pemfile = "2.1.2"
 uuid = { version = "1.8.0", features = ["serde", "v4"] }
 clap = { version = "4.5.4", features = ["derive"]}
 anyhow = { version = "1.0.89", features = ["backtrace"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 

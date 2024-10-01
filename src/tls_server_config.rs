@@ -15,7 +15,11 @@ pub(crate) fn server_config(
             server_config_load_private_key(private_key_path)?,
         )?;
 
-    println!("Loaded TLS files for inbound connections.");
+    tracing::info!(
+        ?cert_path,
+        ?private_key_path,
+        "Loaded TLS files for inbound connections."
+    );
 
     Ok(config)
 }

@@ -2,22 +2,23 @@ use rustls::{ClientConfig, RootCertStore};
 use std::fs;
 use std::io::{Cursor, Read};
 
-pub(crate) fn client_config(ca_roots_directory: &str) -> ClientConfig {
+pub(crate) fn client_config(ca_roots_directory: &str) -> anyhow::Result<ClientConfig> {
     let mut root_cert_store = RootCertStore::empty();
-    let read_dir = fs::read_dir(ca_roots_directory).unwrap();
+    let read_dir = fs::read_dir(ca_roots_directory)?;
 
     for r in read_dir {
-        let dir_entry = r.unwrap();
+        let dir_entry = r?;
         let path = dir_entry.path();
 
         if path.is_file() && path.extension().map_or(false, |e| e == "pem") {
-            let mut file = fs::File::open(&path).unwrap();
+            let mut file = fs::File::open(&path)?;
             let mut pem_data = Vec::new();
-            file.read_to_end(&mut pem_data).unwrap();
+            file.read_to_end(&mut pem_data)?;
 
             let mut reader = Cursor::new(pem_data);
-            for cert in rustls_pemfile::certs(&mut reader) {
-                root_cert_store.add(cert.unwrap()).unwrap();
+            for cert_result in rustls_pemfile::certs(&mut reader) {
+                let cert = cert_result?;
+                root_cert_store.add(cert)?;
             }
         }
     }
@@ -28,5 +29,5 @@ pub(crate) fn client_config(ca_roots_directory: &str) -> ClientConfig {
 
     println!("Loaded TLS files for outbound connections.");
 
-    config
+    Ok(config)
 }

@@ -3,6 +3,7 @@ mod tls_client_config;
 mod tls_server_config;
 
 use crate::command_arguments::CommandArguments;
+use anyhow::{anyhow, bail};
 use clap::Parser;
 use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
@@ -26,18 +27,16 @@ use uuid::Uuid;
 // Google - Cloud SQL: https://github.com/brianc/node-postgres-docs/issues/79#issuecomment-1553759056
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let args: CommandArguments = CommandArguments::parse();
 
     let tls_server_config = tls_server_config::server_config(
         &args.server_certificate_path,
         &args.server_private_key_path,
-    );
-    let tls_client_config = tls_client_config::client_config(&args.client_ca_roots_path);
+    )?;
+    let tls_client_config = tls_client_config::client_config(&args.client_ca_roots_path)?;
 
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", &args.server_port))
-        .await
-        .unwrap();
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", &args.server_port)).await?;
     println!("Listening on port {}", args.server_port);
     while let Ok((inbound_tcp_stream, _)) = listener.accept().await {
         tokio::spawn(handle_inbound_request(
@@ -51,7 +50,7 @@ async fn main() {
         ));
     }
 
-    panic!("Something went wrong with the listener! Exiting program.")
+    bail!("Something went wrong with the listener! Exiting program.")
 }
 
 async fn handle_inbound_request(
@@ -62,12 +61,12 @@ async fn handle_inbound_request(
     connection_port: String,
     tls_validation_host: String,
     request_id: String,
-) -> () {
+) -> anyhow::Result<()> {
     println!(
         "Accepting inbound connection from PG client. Proceeding to handshake. RequestId: {}",
         request_id
     );
-    let inbound_tls_stream = inbound_handshake(inbound_stream, server_config, &request_id).await;
+    let inbound_tls_stream = inbound_handshake(inbound_stream, server_config, &request_id).await?;
 
     println!(
         "Inbound TLS OK. Proceeding to outbound connection to PG server. RequestId: {}",
@@ -80,39 +79,41 @@ async fn handle_inbound_request(
         &tls_validation_host,
         &request_id,
     )
-    .await;
+    .await?;
 
     println!(
         "Outbound TLS OK. Proceeding to join inbound and outbound connection. RequestId: {}",
         request_id
     );
-    join(inbound_tls_stream, outbound_tls_stream, &request_id).await;
+    join(inbound_tls_stream, outbound_tls_stream, &request_id).await?;
+
+    Ok(())
 }
 
 async fn inbound_handshake(
     mut inbound_stream: TcpStream,
     server_config: ServerConfig,
     request_id: &str,
-) -> TlsStream<TcpStream> {
+) -> anyhow::Result<TlsStream<TcpStream>> {
     let mut buffer = [0u8; 8];
-    inbound_stream.read_exact(&mut buffer).await.unwrap();
+    inbound_stream.read_exact(&mut buffer).await?;
     if !buffer.starts_with(&[0, 0, 0, 8, 4, 210, 22, 47]) {
         // tell pgClient we do not support plaintext connections
-        inbound_stream.write_all(b"N").await.unwrap();
-        panic!(
+        inbound_stream.write_all(b"N").await?;
+        bail!(
             "TLS not supported by PG client on inbound connection. RequestId: {}",
             request_id
         );
     }
     // tell pgClient we're proceeding with TLS
-    inbound_stream.write_all(b"S").await.unwrap();
+    inbound_stream.write_all(b"S").await?;
 
-    TlsAcceptor::from(Arc::new(server_config))
+    let stream = TlsAcceptor::from(Arc::new(server_config))
         .accept(inbound_stream)
-        .await
-        .unwrap()
-        .try_into()
-        .unwrap()
+        .await?
+        .into();
+
+    Ok(stream)
 }
 
 async fn outbound_handshake(
@@ -121,47 +122,48 @@ async fn outbound_handshake(
     client_config: ClientConfig,
     tls_validation_host: &str,
     request_id: &str,
-) -> TlsStream<TcpStream> {
-    let connect_to = format!("{}:{}", connection_host_or_ip, connection_port)
-        .to_socket_addrs()
-        .unwrap()
+) -> anyhow::Result<TlsStream<TcpStream>> {
+    let connect_to = format!("{}:{}", connection_host_or_ip, connection_port);
+    let connect_to = connect_to
+        .to_socket_addrs()?
         .next()
-        .unwrap();
-    let mut outbound_stream = TcpStream::connect(connect_to).await.unwrap();
+        .ok_or(anyhow!("Invalid address: {connect_to:?}"))?;
+    let mut outbound_stream = TcpStream::connect(connect_to).await?;
     // tell pgServer we only support TLS connections
     outbound_stream
         .write_all(&[0, 0, 0, 8, 4, 210, 22, 47])
-        .await
-        .unwrap();
+        .await?;
     let mut buffer = [0u8; 1];
-    outbound_stream.read_exact(&mut buffer).await.unwrap();
+    outbound_stream.read_exact(&mut buffer).await?;
     if !buffer.starts_with(b"S") {
-        panic!(
+        bail!(
             "TLS not supported by PG server on outbound connection. RequestId: {}",
             request_id
         );
     }
 
-    TlsConnector::from(Arc::new(client_config))
+    let stream = TlsConnector::from(Arc::new(client_config))
         .connect(
-            ServerName::DnsName(tls_validation_host.to_owned().try_into().unwrap()),
+            ServerName::DnsName(tls_validation_host.to_owned().try_into()?),
             outbound_stream,
         ) // tls verification for pgServer happens here
-        .await
-        .unwrap()
-        .try_into()
-        .unwrap()
+        .await?
+        .into();
+
+    Ok(stream)
 }
 
 async fn join(
     inbound: TlsStream<TcpStream>,
     outbound: TlsStream<TcpStream>,
     request_id: &str,
-) -> () {
+) -> anyhow::Result<()> {
     let (mut ir, mut iw) = split(inbound);
     let (mut or, mut ow) = split(outbound);
 
-    tokio::try_join!(io::copy(&mut ir, &mut ow), io::copy(&mut or, &mut iw)).unwrap();
+    tokio::try_join!(io::copy(&mut ir, &mut ow), io::copy(&mut or, &mut iw))?;
 
     println!("Connection closed. RequestId: {}", request_id);
+
+    Ok(())
 }

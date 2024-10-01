@@ -1,6 +1,7 @@
 mod command_arguments;
 mod tls_client_config;
 mod tls_server_config;
+mod tracing_setup;
 
 use crate::command_arguments::CommandArguments;
 use anyhow::{anyhow, bail};
@@ -13,6 +14,7 @@ use tokio::io::{self, split, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::rustls::{self, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector, TlsStream};
+use tracing::Instrument;
 use uuid::Uuid;
 
 // References:
@@ -27,8 +29,10 @@ use uuid::Uuid;
 // Google - Cloud SQL: https://github.com/brianc/node-postgres-docs/issues/79#issuecomment-1553759056
 
 #[tokio::main]
+#[tracing::instrument(name = "pgt-proxy")]
 async fn main() -> anyhow::Result<()> {
     let args: CommandArguments = CommandArguments::parse();
+    tracing_setup::init(args.log_level)?;
 
     let tls_server_config = tls_server_config::server_config(
         &args.server_certificate_path,
@@ -37,22 +41,33 @@ async fn main() -> anyhow::Result<()> {
     let tls_client_config = tls_client_config::client_config(&args.client_ca_roots_path)?;
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", &args.server_port)).await?;
-    println!("Listening on port {}", args.server_port);
+    tracing::info!(port = ?args.server_port, "Listening");
     while let Ok((inbound_tcp_stream, _)) = listener.accept().await {
-        tokio::spawn(handle_inbound_request(
-            inbound_tcp_stream,
-            tls_server_config.clone(),
-            tls_client_config.clone(),
-            args.client_connection_host_or_ip.to_owned(),
-            args.client_connection_port.to_owned(),
-            args.client_tls_validation_host.to_owned(),
-            Uuid::new_v4().to_string(),
-        ));
+        tokio::spawn(
+            handle_inbound_request(
+                inbound_tcp_stream,
+                tls_server_config.clone(),
+                tls_client_config.clone(),
+                args.client_connection_host_or_ip.to_owned(),
+                args.client_connection_port.to_owned(),
+                args.client_tls_validation_host.to_owned(),
+                Uuid::new_v4().to_string(),
+            )
+            .in_current_span(),
+        );
     }
 
     bail!("Something went wrong with the listener! Exiting program.")
 }
 
+#[tracing::instrument(
+    skip_all,
+    fields(
+        addr = connection_host_or_ip,
+        port = connection_port,
+        request_id = request_id,
+    )
+)]
 async fn handle_inbound_request(
     inbound_stream: TcpStream,
     server_config: ServerConfig,
@@ -62,15 +77,15 @@ async fn handle_inbound_request(
     tls_validation_host: String,
     request_id: String,
 ) -> anyhow::Result<()> {
-    println!(
-        "Accepting inbound connection from PG client. Proceeding to handshake. RequestId: {}",
-        request_id
+    tracing::info!(
+        ?request_id,
+        "Accepting inbound connection from PG client. Proceeding to handshake.",
     );
     let inbound_tls_stream = inbound_handshake(inbound_stream, server_config, &request_id).await?;
 
-    println!(
-        "Inbound TLS OK. Proceeding to outbound connection to PG server. RequestId: {}",
-        request_id
+    tracing::info!(
+        ?request_id,
+        "Inbound TLS OK. Proceeding to outbound connection to PG server.",
     );
     let outbound_tls_stream = outbound_handshake(
         &connection_host_or_ip,
@@ -81,15 +96,16 @@ async fn handle_inbound_request(
     )
     .await?;
 
-    println!(
-        "Outbound TLS OK. Proceeding to join inbound and outbound connection. RequestId: {}",
-        request_id
+    tracing::info!(
+        ?request_id,
+        "Outbound TLS OK. Proceeding to join inbound and outbound connection.",
     );
     join(inbound_tls_stream, outbound_tls_stream, &request_id).await?;
 
     Ok(())
 }
 
+#[tracing::instrument(skip_all)]
 async fn inbound_handshake(
     mut inbound_stream: TcpStream,
     server_config: ServerConfig,
@@ -100,10 +116,9 @@ async fn inbound_handshake(
     if !buffer.starts_with(&[0, 0, 0, 8, 4, 210, 22, 47]) {
         // tell pgClient we do not support plaintext connections
         inbound_stream.write_all(b"N").await?;
-        bail!(
-            "TLS not supported by PG client on inbound connection. RequestId: {}",
-            request_id
-        );
+        let err_msg = "TLS not supported by PG client on inbound connection";
+        tracing::error!("{err_msg}");
+        bail!("{err_msg}. RequestId: {request_id}");
     }
     // tell pgClient we're proceeding with TLS
     inbound_stream.write_all(b"S").await?;
@@ -116,6 +131,7 @@ async fn inbound_handshake(
     Ok(stream)
 }
 
+#[tracing::instrument(skip_all)]
 async fn outbound_handshake(
     connection_host_or_ip: &str,
     connection_port: &str,
@@ -153,6 +169,7 @@ async fn outbound_handshake(
     Ok(stream)
 }
 
+#[tracing::instrument(skip_all)]
 async fn join(
     inbound: TlsStream<TcpStream>,
     outbound: TlsStream<TcpStream>,
@@ -163,7 +180,7 @@ async fn join(
 
     tokio::try_join!(io::copy(&mut ir, &mut ow), io::copy(&mut or, &mut iw))?;
 
-    println!("Connection closed. RequestId: {}", request_id);
+    tracing::info!(?request_id, "Connection closed.");
 
     Ok(())
 }

@@ -3,6 +3,8 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Create a proxy server, which will use a client to connect to a postgres db.")]
 pub(crate) struct CommandArguments {
+    #[arg(short, long = "log", default_value_t = tracing::Level::INFO)]
+    pub(crate) log_level: tracing::Level,
     #[arg(
         long,
         help = "A path to a file containing the private key the server will use."

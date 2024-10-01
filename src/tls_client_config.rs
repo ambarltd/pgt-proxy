@@ -27,7 +27,10 @@ pub(crate) fn client_config(ca_roots_directory: &str) -> anyhow::Result<ClientCo
         .with_root_certificates(root_cert_store)
         .with_no_client_auth();
 
-    println!("Loaded TLS files for outbound connections.");
+    tracing::info!(
+        ?ca_roots_directory,
+        "Loaded TLS files for outbound connections."
+    );
 
     Ok(config)
 }

@@ -1,7 +1,7 @@
+use anyhow::bail;
 use rustls::{ClientConfig, RootCertStore};
 use std::fs;
 use std::io::{Cursor, Read};
-use anyhow::bail;
 
 pub(crate) fn client_config(ca_roots_directory: &str) -> anyhow::Result<ClientConfig> {
     let mut root_cert_store = RootCertStore::empty();

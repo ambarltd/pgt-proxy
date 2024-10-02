@@ -1,0 +1,24 @@
+name: PR Test
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened ]
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+      - name: Run Tests
+        working-directory: development-environment
+        run: ./test.sh

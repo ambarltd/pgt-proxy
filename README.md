@@ -1,5 +1,7 @@
 # PGT-Proxy
 
+![Main Branch - Build Status](https://github.com/ambarltd/pgt-proxy/actions/workflows/test.yml/badge.svg?branch=main)
+
 PostgreSQL TLS Proxy is an intermediary server to easily and securely connect TLS enabled PG clients to 
 TLS enabled PG servers. 
 

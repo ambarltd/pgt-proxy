@@ -1,0 +1,61 @@
+services:
+  postgres-server:
+    build:
+      context:
+        ./postgres-server
+    container_name: pgt-proxy-postgres-server
+    restart: always
+    volumes:
+      - ./data/postgres-server-pg-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: my_username
+      POSTGRES_DB: my_database
+      POSTGRES_PASSWORD: my_password
+    expose:
+      - 5432
+    networks:
+      pgtProxyTest:
+        ipv4_address: 172.35.0.102
+    deploy:
+      resources:
+        limits:
+          cpus: '0.500'
+          memory: 1024M
+  postgres-proxy:
+    build:
+      context:
+        ./postgres-proxy
+    container_name: pgt-proxy-postgres-proxy
+    restart: always
+    expose:
+      - 5432
+    networks:
+      pgtProxyTest:
+        ipv4_address: 172.35.0.103
+    deploy:
+      resources:
+        limits:
+          cpus: '0.500'
+          memory: 1024M
+  postgres-client:
+    build:
+      context:
+        ./postgres-client
+    container_name: pgt-proxy-postgres-client
+    restart: always
+    networks:
+      pgtProxyTest:
+        ipv4_address: 172.35.0.104
+    deploy:
+      resources:
+        limits:
+          cpus: '0.500'
+          memory: 1024M
+
+
+networks:
+    pgtProxyTest:
+        driver: bridge
+        ipam:
+            config:
+                - subnet: 172.35.0.0/24

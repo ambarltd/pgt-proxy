@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Layer};
 
 pub(crate) fn init(level: tracing::Level) -> anyhow::Result<()> {
@@ -7,7 +8,8 @@ pub(crate) fn init(level: tracing::Level) -> anyhow::Result<()> {
         .with_file(false)
         .with_line_number(true)
         .with_thread_ids(true)
-        .with_filter(EnvFilter::from_default_env().add_directive(level.into()));
+        .with_filter(EnvFilter::from_str(level.as_str())?);
+
     tracing::subscriber::set_global_default(tracing_subscriber::registry().with(layer_stderr))?;
     Ok(())
 }

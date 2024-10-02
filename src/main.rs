@@ -29,21 +29,32 @@ use uuid::Uuid;
 // Google - Cloud SQL: https://github.com/brianc/node-postgres-docs/issues/79#issuecomment-1553759056
 
 #[tokio::main]
-#[tracing::instrument(name = "pgt-proxy")]
+#[tracing::instrument(name = "pgt_proxy")]
 async fn main() -> anyhow::Result<()> {
     let args: CommandArguments = CommandArguments::parse();
-    tracing_setup::init(args.log_level)?;
+    // We observed that the program would output nothing (stdout/stderr) upon tracing init failure,
+    // when using stderr as the writer.
+    // Let's panic when we fail to initialize tracing, which will surely print to stderr.
+    tracing_setup::init(args.log_level).expect("Failed to initialize tracing.");
+    tracing::info!("Hello from PGT Proxy. Starting up!");
 
+    tracing::info!("Fetching Server Config.");
     let tls_server_config = tls_server_config::server_config(
         &args.server_certificate_path,
         &args.server_private_key_path,
     )?;
+    tracing::info!("Fetched Server Config.");
+    tracing::info!("Fetching Client Config.");
     let tls_client_config = tls_client_config::client_config(&args.client_ca_roots_path)?;
+    tracing::info!("Fetched Client Config.");
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", &args.server_port)).await?;
     tracing::info!(port = ?args.server_port, "Listening");
     while let Ok((inbound_tcp_stream, _)) = listener.accept().await {
-        tokio::spawn(
+        let request_id = Uuid::new_v4().to_string();
+
+        let request_id_for_task = request_id.clone();
+        let task = tokio::spawn(
             handle_inbound_request(
                 inbound_tcp_stream,
                 tls_server_config.clone(),
@@ -51,10 +62,33 @@ async fn main() -> anyhow::Result<()> {
                 args.client_connection_host_or_ip.to_owned(),
                 args.client_connection_port.to_owned(),
                 args.client_tls_validation_host.to_owned(),
-                Uuid::new_v4().to_string(),
+                request_id_for_task,
             )
             .in_current_span(),
         );
+
+        let request_id_for_join = request_id.clone();
+        tokio::spawn(async move {
+            match task.await {
+                Ok(Ok(())) => {
+                    tracing::info!(request_id = %request_id_for_join, "Task completed successfully.");
+                }
+                Ok(Err(e)) => {
+                    tracing::error!(
+                        ?e,
+                        request_id = %request_id_for_join,
+                        "Task failed with an error."
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        ?e,
+                        request_id = %request_id_for_join,
+                        "Task panicked or was cancelled."
+                    );
+                }
+            }
+        });
     }
 
     bail!("Something went wrong with the listener! Exiting program.")
@@ -178,9 +212,16 @@ async fn join(
     let (mut ir, mut iw) = split(inbound);
     let (mut or, mut ow) = split(outbound);
 
-    tokio::try_join!(io::copy(&mut ir, &mut ow), io::copy(&mut or, &mut iw))?;
+    let result = tokio::try_join!(io::copy(&mut ir, &mut ow), io::copy(&mut or, &mut iw));
 
-    tracing::info!(?request_id, "Connection closed.");
-
-    Ok(())
+    match result {
+        Ok(_) => {
+            tracing::info!(?request_id, "Connection closed gracefully.");
+            Ok(())
+        }
+        Err(e) => {
+            tracing::error!(?e, ?request_id, "Connection aborted due to an error.");
+            Err(e.into())
+        }
+    }
 }

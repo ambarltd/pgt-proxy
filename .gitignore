@@ -1,2 +1,4 @@
 /target
 .idea
+development-environment/data
+development-environment/postgres-proxy/code_copy

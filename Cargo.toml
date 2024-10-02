@@ -2,7 +2,7 @@
 name = "pgt_proxy"
 version = "1.0.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.81.0"
 
 [dependencies]
 tokio = { version = "1.37.0", features = ["full"] }

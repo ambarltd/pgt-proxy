@@ -67,13 +67,13 @@ Build the binary and run it.
 cargo build --release
 
 ./target/release/pgt_proxy \
-    --server-private-key-path key.pem \
+    --server-private-key-path key.key \
     --server-certificate-path cert.pem \
     --server-port 9000 \
     --client-connection-host-or-ip c-abcdef.cluster-crawki488h3k.eu-west-1.rds.amazonaws.com \
     --client-connection-port 5432 \
     --client-tls-validation-host c-abcdef.cluster-crawki488h3k.eu-west-1.rds.amazonaws.com \
-    --client-ca-roots-path path-to-aws-rds-ca-roots
+    --client-ca-roots-path path-to-aws-rds-ca-roots # will only read files ending in .pem
 ```
 
 Connect to the proxy. Notice that channel binding is disabled, because PGT-Proxy is after all a proxy, and PG

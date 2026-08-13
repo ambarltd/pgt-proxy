@@ -3,11 +3,11 @@
 ![Main Branch - Build Status](https://github.com/ambarltd/pgt-proxy/actions/workflows/test.yaml/badge.svg?branch=main)
 
 PostgreSQL TLS Proxy is an intermediary server to easily and securely connect TLS enabled PG clients to 
-TLS enabled PG servers. 
+TLS enabled PG servers.
 
 - Deployable via Docker image [on DockerHub](https://hub.docker.com/r/ambarltd/pgt-proxy)
 - Source code for Docker deployment available [on GitHub](https://github.com/ambarltd/pgt-proxy-docker)
-- Read why we open sourced PGT Proxy [on our website](https://ambar.cloud/blog/connect-to-postgresql-securely-with-pgt-proxy)
+- Read why we open sourced (MIT License) PGT Proxy [on our website](https://ambar.cloud/blog/connect-to-postgresql-securely-with-pgt-proxy)
 
 ---
 
